@@ -1,4 +1,4 @@
-# Absenteeism Dashboard — © Seif 2026
+ # Absenteeism Dashboard — © Seif 2026
 
 داشبورد ثابت (HTML/CSS/JS) بيشتغل على GitHub Pages، والـ Backend هو Google Apps Script بيقرا ويكتب في الشيتات:
 `Codes SHR` · `Codes absent` · `STR`
