@@ -83,3 +83,9 @@ footer{text-align:center;padding:24px;color:var(--p3);font-size:14px}
 #toast div{padding:12px 22px;border-radius:12px;color:#fff;font-weight:700;background:#1fa971;box-shadow:0 5px 0 #0f6a45,0 12px 20px rgba(0,0,0,.4)}
 #toast div.err{background:#e0485a;box-shadow:0 5px 0 #932232,0 12px 20px rgba(0,0,0,.4)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation-duration:3s!important}}
+
+/* v3 */
+.bar h3{margin:0;text-align:start}
+.logo{animation:fl 4s ease-in-out infinite}
+@keyframes fl{50%{transform:translateY(-8px) rotateX(8deg)}}
+.logo.sm{animation:none}

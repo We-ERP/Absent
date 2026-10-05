@@ -9,9 +9,10 @@ const CFG = {
   'Codes absent': { start: 3, blocks: [['Absent', 1, 2], ['Scheduled Absent', 5, 6]] },
   'STR':          { start: 2, blocks: [['STR', 1, 9]] }
 };
-const PERMS = { run: 'تشغيل', export: 'تصدير', codes: 'تعديل الأكواد', str: 'تعديل STR', users: 'إدارة المستخدمين' };
+const PERMS = { run: 'Run', export: 'Export', codes: 'Edit Codes', str: 'Edit STR', users: 'Manage Users' };
 let USER = '', PWD = '', ME = null, S = {}, FINAL = [], busyN = 0, LAST_AOA = null;
 const can = p => ME && ME.perms.includes(p);
+const isAdmin = () => ME && ME.role === 'admin';
 
 /* ---------- helpers ---------- */
 function toast(m, ok = true) {
@@ -23,7 +24,7 @@ async function api(b) {
   try {
     const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ user: USER, pwd: PWD, ...b }) });
     const j = await r.json();
-    if (!j.ok) throw new Error(j.error || 'خطأ');
+    if (!j.ok) throw new Error(j.error || 'Error');
     return j;
   } finally { if (--busyN <= 0) $('#busy').hidden = true; }
 }
@@ -72,13 +73,14 @@ async function login(auto) {
 }
 async function start() {
   $('#who').textContent = `${ME.user} • ${ME.role}`;
-  const t = [['dash', 'الداشبورد']];
+  const t = [['dash', 'Dashboard']];
   if (can('codes')) t.push(['Codes SHR', 'Codes SHR'], ['Codes absent', 'Codes absent']);
   if (can('str')) t.push(['STR', 'STR']);
-  if (can('users')) t.push(['users', 'المستخدمين']);
+  if (can('users')) t.push(['users', 'Users']);
   $('#tabs').innerHTML = t.map(([k, v]) => `<button class="btn sm b-ref" data-t="${k}">${v}</button>`).join('');
-  $('#upSch').hidden = !can('run'); $('#gear').hidden = !can('users');
-  ['#expView', '#expAll'].forEach(s => $(s).hidden = !can('export'));
+  $('#upSch').hidden = !can('run'); $('#gear').hidden = !isAdmin();
+  $('#expView').hidden = !can('export'); $('#expAll').hidden = !(isAdmin() && can('export'));
+  $('#tlLbl').hidden = !isAdmin(); $('#settings').hidden = true;
   await Promise.all(Object.keys(CFG).map(loadSheet));
   $('#login').hidden = true; $('#app').hidden = false; show('dash');
 }
@@ -96,15 +98,6 @@ function show(t) {
   else if (t !== 'dash') renderEditor(t);
 }
 $('#gear').onclick = () => { $('#settings').hidden = !$('#settings').hidden; };
-
-/* تأثير 3D للكروت */
-document.addEventListener('mousemove', e => {
-  const t = e.target.closest && e.target.closest('.tile');
-  document.querySelectorAll('.tile').forEach(x => { if (x !== t) x.style.transform = ''; });
-  if (!t) return;
-  const r = t.getBoundingClientRect(), px = (e.clientX - r.left) / r.width - .5, py = (e.clientY - r.top) / r.height - .5;
-  t.style.transform = `rotateX(${-py * 16}deg) rotateY(${px * 16}deg) translateZ(14px)`;
-});
 
 /* ---------- معالجة الاسكدول (منطق الـ VBA) ---------- */
 function process(aoa) {
@@ -127,14 +120,15 @@ function process(aoa) {
   }
   FINAL = out;
   const miss = [...new Set(out.filter(x => x.abs === '#N/A' || x.shr === '#N/A').map(x => x.code))];
-  $('#info').innerHTML = `تمت معالجة <b>${out.length}</b> صف.` + (miss.length ? ` <span style="color:#ffb4bd">أكواد مش موجودة (${miss.length}): ${esc(miss.join(' ، '))}</span>` : ' ✔');
+  $('#info').innerHTML = `Processed <b>${out.length}</b> rows.` + (miss.length ? ` <span style="color:#ffb4bd">Codes not found (${miss.length}): ${esc(miss.join(', '))}</span>` : ' ✔');
   if (!out.length) {
+    toast('No rows matched the expected layout', false);
     const s0 = Math.max(hdr - 2, 0);
-    $('#info').innerHTML += `<br>مفيش صفوف اتطابقت. أول صفوف الملف:<div class="wrap" dir="ltr" style="margin-top:8px"><table><thead><tr><th>row</th><th>A</th><th>B</th><th>C</th><th>D</th><th>${esc($('#dcol').value.toUpperCase())}</th></tr></thead><tbody>` +
+    $('#info').innerHTML += `<br>No rows matched. First rows of the file:<div class="wrap" dir="ltr" style="margin-top:8px"><table><thead><tr><th>row</th><th>A</th><th>B</th><th>C</th><th>D</th><th>${esc($('#dcol').value.toUpperCase())}</th></tr></thead><tbody>` +
       aoa.slice(s0, hdr + 14).map((r, k) => `<tr><td>${s0 + k + 1}</td>${[0, 1, 2, 3, dc].map(j => `<td>${esc(String(r[j] ?? '').slice(0, 28))}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>';
   }
   const prev = $('#tlf').value, tls = [...new Set(out.filter(x => x.abs === 'Absent').map(x => x.tl))].sort();
-  $('#tlf').innerHTML = '<option value="all">كل الليدرز</option>' + tls.map(t => `<option>${esc(t)}</option>`).join('');
+  $('#tlf').innerHTML = '<option value="all">All Leaders</option>' + tls.map(t => `<option>${esc(t)}</option>`).join('');
   if (tls.includes(prev)) $('#tlf').value = prev;
   renderFinal(); renderPivot();
 }
@@ -142,11 +136,13 @@ const vis = () => FINAL.filter(x => x.abs === 'Absent' && ($('#tlf').value === '
 function renderFinal() {
   const rows = vis(), H = ['ID', 'Date', 'Duration', 'Agent Name', 'TL', 'Code', 'Month', 'SPV'];
   const cell = v => `<td class="${v === '#N/A' ? 'na' : ''}">${esc(v)}</td>`;
-  $('#cnt').textContent = rows.length ? `(${rows.length} صف)` : '';
+  $('#cnt').textContent = rows.length ? `(${rows.length} rows)` : '';
   $('#final').innerHTML = `<table><thead><tr>${H.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
     rows.slice(0, 500).map(x => `<tr><td>${esc(x.id)}</td><td>${fmtD(x.date)}</td><td>${fmtT(x.sec)}</td>${cell(x.agent)}${cell(x.tl)}<td>${esc(x.code)}</td><td>${x.month}</td>${cell(x.spv)}</tr>`).join('') +
-    `</tbody></table>` + (rows.length > 500 ? `<p class="muted" style="padding:8px">معروض أول 500 من ${rows.length} - التصدير بيشمل الكل.</p>` : '');
+    `</tbody></table>` + (rows.length > 500 ? `<p class="muted" style="padding:8px">Showing first 500 of ${rows.length} - export includes all.</p>` : '');
 }
+const ORDER = ['yasmin khaled', 'support sls'];
+const spvOrder = (a, b) => { const r = x => { const i = ORDER.indexOf(norm(x)); return x === '#N/A' ? 99 : i < 0 ? 50 : i; }; return r(a) - r(b) || String(a).localeCompare(b); };
 function renderPivot() {
   const act = $('#stf').value === 'Active', g = new Map(), ag = new Set();
   FINAL.filter(x => !act || x.ss === 'Active').forEach(x => {
@@ -158,21 +154,20 @@ function renderPivot() {
   const pc = (a, t) => t ? (a / t * 100).toFixed(2) + '%' : '-';
   const tr = (n, o, cls) => `<tr class="${cls}"><td>${esc(n)}</td><td>${fmtT(o.a)}</td><td>${fmtT(o.s)}</td><td>${fmtT(o.a + o.s)}</td><td>${pc(o.a, o.a + o.s)}</td></tr>`;
   let h = '', G = { a: 0, s: 0 };
-  [...g.keys()].sort().forEach(spv => {
+  [...g.keys()].sort(spvOrder).forEach(spv => {
     const m = g.get(spv), t = { a: 0, s: 0 };
     m.forEach(o => { t.a += o.a; t.s += o.s; }); G.a += t.a; G.s += t.s;
     h += tr(spv, t, 'spv') + [...m.keys()].sort().map(tl => tr(tl, m.get(tl), '')).join('');
   });
   h += tr('Total Scheduled Time', G, 'tot');
   $('#pivot').innerHTML = `<table><thead><tr><th>TL</th><th>Absent</th><th>Scheduled</th><th>Total Scheduled Time</th><th>%</th></tr></thead><tbody>${h}</tbody></table>`;
-  $('#k-pct').textContent = pc(G.a, G.a + G.s); $('#k-abs').textContent = fmtT(G.a); $('#k-sch').textContent = fmtT(G.a + G.s); $('#k-ag').textContent = ag.size;
 }
-$('#upSch').onclick = () => pickFile(wb => { LAST_AOA = aoaOf(wb); process(LAST_AOA); toast('تمت المعالجة'); });
+$('#upSch').onclick = () => pickFile(wb => { LAST_AOA = aoaOf(wb); process(LAST_AOA); toast('Processed'); });
 $('#stf').onchange = () => FINAL.length && renderPivot();
 $('#tlf').onchange = renderFinal;
 ['#hdr', '#dcol'].forEach(s => $(s).onchange = () => LAST_AOA && process(LAST_AOA));
 function exportRows(rows, name) {
-  if (!rows.length) return toast('مفيش داتا للتصدير', false);
+  if (!rows.length) return toast('No data to export', false);
   const aoa = [['ID', 'Date', 'Duration', 'Agent Name', 'TL', 'Code'], ...rows.map(x => [/^\d+$/.test(x.id) ? +x.id : x.id, x.date, x.sec / 86400, x.agent, x.tl, x.code])];
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   for (let i = 2; i <= aoa.length; i++) { ws['B' + i].z = 'd-mmm'; ws['C' + i].z = '[h]:mm:ss'; }
@@ -189,8 +184,8 @@ function renderEditor(name) {
     const head = (S[name][cfg.start - 2] || []).slice(c1 - 1, c2);
     const card = document.createElement('div'); card.className = 'card';
     card.innerHTML = `<div class="bar"><h3>${esc(name)} - ${esc(title)}</h3>
-      <div class="row"><input class="q" placeholder="بحث..."><button class="btn sm b-up up">رفع واستبدال</button><button class="btn sm b-ref rf">تحديث</button></div></div>
-      <div class="add">${head.map(h => `<input placeholder="${esc(h)}">`).join('')}<button class="btn sm b-add ad">إضافة</button></div><div class="wrap" dir="ltr"></div>`;
+      <div class="row"><input class="q" placeholder="Search..."><button class="btn sm b-up up">Upload & Replace</button><button class="btn sm b-ref rf">Refresh</button></div></div>
+      <div class="add">${head.map(h => `<input placeholder="${esc(h)}">`).join('')}<button class="btn sm b-add ad">Add</button></div><div class="wrap" dir="ltr"></div>`;
     root.append(card);
     const wrap = $('.wrap', card);
     const draw = () => {
@@ -199,34 +194,34 @@ function renderEditor(name) {
         const v = S[name][r].slice(c1 - 1, c2);
         if (v.every(x => x === '') || (q && !v.some(x => norm(x).includes(q)))) continue;
         if (++n > 300) break;
-        rows += `<tr>${v.map((x, i) => `<td><input value="${esc(x)}" data-r="${r + 1}" data-c="${c1 + i}"></td>`).join('')}<td><button class="btn sm b-del" data-del="${r + 1}">حذف</button></td></tr>`;
+        rows += `<tr>${v.map((x, i) => `<td><input value="${esc(x)}" data-r="${r + 1}" data-c="${c1 + i}"></td>`).join('')}<td><button class="btn sm b-del" data-del="${r + 1}">Delete</button></td></tr>`;
       }
-      wrap.innerHTML = `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>` + (n > 300 ? '<p class="muted" style="padding:8px">معروض أول 300 - استخدم البحث.</p>' : '');
+      wrap.innerHTML = `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>` + (n > 300 ? '<p class="muted" style="padding:8px">Showing first 300 - use search.</p>' : '');
     };
     draw();
     const reload = async () => { await loadSheet(name); renderEditor(name); };
     $('.q', card).oninput = draw;
-    $('.rf', card).onclick = () => reload().then(() => toast('تم التحديث')).catch(e => toast(e.message, false));
+    $('.rf', card).onclick = () => reload().then(() => toast('Refreshed')).catch(e => toast(e.message, false));
     wrap.onchange = async e => {
       const t = e.target; if (!t.dataset.r) return;
       const r = +t.dataset.r; S[name][r - 1][+t.dataset.c - 1] = t.value;
-      try { await api({ action: 'setCells', sheet: name, row: r, c1, values: S[name][r - 1].slice(c1 - 1, c2) }); toast('اتحفظ'); } catch (er) { toast(er.message, false); }
+      try { await api({ action: 'setCells', sheet: name, row: r, c1, values: S[name][r - 1].slice(c1 - 1, c2) }); toast('Saved'); } catch (er) { toast(er.message, false); }
     };
     wrap.onclick = async e => {
-      const r = e.target.dataset.del; if (!r || !confirm('متأكد من الحذف؟')) return;
-      try { await api({ action: 'delRow', sheet: name, row: +r, c1, c2 }); await reload(); toast('اتحذف'); } catch (er) { toast(er.message, false); }
+      const r = e.target.dataset.del; if (!r || !confirm('Delete this row?')) return;
+      try { await api({ action: 'delRow', sheet: name, row: +r, c1, c2 }); await reload(); toast('Deleted'); } catch (er) { toast(er.message, false); }
     };
     $('.ad', card).onclick = async () => {
       const vals = [...card.querySelectorAll('.add input')].map(i => i.value.trim());
-      if (!vals[0]) return toast('اكتب أول عمود على الأقل', false);
-      try { await api({ action: 'addRow', sheet: name, start: cfg.start, c1, values: vals }); await reload(); toast('اتضاف'); } catch (er) { toast(er.message, false); }
+      if (!vals[0]) return toast('Fill at least the first column', false);
+      try { await api({ action: 'addRow', sheet: name, start: cfg.start, c1, values: vals }); await reload(); toast('Added'); } catch (er) { toast(er.message, false); }
     };
     $('.up', card).onclick = () => pickFile(async wb => {
       const w = c2 - c1 + 1;
       const vals = aoaOf(wb).slice(1).map(r => Array.from({ length: w }, (_, i) => r[i] ?? '')).filter(r => r.some(x => x !== ''));
-      if (!vals.length) return toast('الملف فاضي', false);
-      if (!confirm(`هيتم استبدال ${title} بـ ${vals.length} صف. تكمل؟`)) return;
-      try { await api({ action: 'replace', sheet: name, start: cfg.start, c1, c2, values: vals }); await reload(); toast('تم الرفع'); } catch (er) { toast(er.message, false); }
+      if (!vals.length) return toast('File is empty', false);
+      if (!confirm(`Replace ${title} with ${vals.length} rows. Continue?`)) return;
+      try { await api({ action: 'replace', sheet: name, start: cfg.start, c1, c2, values: vals }); await reload(); toast('Uploaded'); } catch (er) { toast(er.message, false); }
     });
   });
 }
@@ -234,16 +229,16 @@ function renderEditor(name) {
 /* ---------- المستخدمين والصلاحيات ---------- */
 async function renderUsers() {
   const { users } = await api({ action: 'listUsers' }), root = $('#v-ed');
-  root.innerHTML = `<div class="card slim"><h3>مستخدم</h3>
-    <div class="add"><input id="u-n" placeholder="اليوزر (إنجليزي)"><input id="u-p" type="password" placeholder="كلمة السر (فاضية = بدون تغيير)">
+  root.innerHTML = `<div class="card slim"><h3>User</h3>
+    <div class="add"><input id="u-n" placeholder="Username"><input id="u-p" type="password" placeholder="Password (blank = keep)">
       <select id="u-r"><option value="user">User</option><option value="admin">Admin</option></select>
-      <select id="u-a"><option value="YES">مفعّل</option><option value="NO">موقوف</option></select></div>
+      <select id="u-a"><option value="YES">Active</option><option value="NO">Disabled</option></select></div>
     <div class="row c" id="u-perms">${Object.entries(PERMS).map(([k, v]) => `<label><input type="checkbox" value="${k}" ${k === 'run' || k === 'export' ? 'checked' : ''}> ${v}</label>`).join('')}</div>
-    <p class="muted c">الـ Admin بياخد كل الصلاحيات تلقائياً.</p>
-    <div class="row c"><button class="btn b-save" id="u-s">حفظ</button><button class="btn b-ref" id="u-c">جديد</button></div></div>
-    <div class="card slim"><h3>المستخدمين</h3><div class="wrap" dir="ltr"><table><thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Active</th><th></th></tr></thead><tbody>${
+    <p class="muted c">Admin automatically gets all permissions.</p>
+    <div class="row c"><button class="btn b-save" id="u-s">Save</button><button class="btn b-ref" id="u-c">New</button></div></div>
+    <div class="card slim"><h3>All Users</h3><div class="wrap" dir="ltr"><table><thead><tr><th>User</th><th>Role</th><th>Permissions</th><th>Active</th><th></th></tr></thead><tbody>${
       users.map(u => `<tr><td>${esc(u.username)}</td><td>${esc(u.role)}</td><td>${esc(u.role === 'admin' ? 'all' : u.perms.join(', '))}</td><td>${u.active}</td>
-      <td><button class="btn sm b-save" data-e="${esc(u.username)}">تعديل</button> <button class="btn sm b-del" data-d="${esc(u.username)}">حذف</button></td></tr>`).join('') || '<tr><td colspan="5">مفيش مستخدمين لسه</td></tr>'}</tbody></table></div></div>`;
+      <td><button class="btn sm b-save" data-e="${esc(u.username)}">Edit</button> <button class="btn sm b-del" data-d="${esc(u.username)}">Delete</button></td></tr>`).join('') || '<tr><td colspan="5">No users yet</td></tr>'}</tbody></table></div></div>`;
   const fill = u => {
     $('#u-n').value = u ? u.username : ''; $('#u-p').value = ''; $('#u-r').value = u ? u.role : 'user'; $('#u-a').value = u ? u.active : 'YES';
     document.querySelectorAll('#u-perms input').forEach(c => c.checked = u ? u.perms.includes(c.value) : (c.value === 'run' || c.value === 'export'));
@@ -252,11 +247,23 @@ async function renderUsers() {
   $('#u-s').onclick = async () => {
     const u = { username: $('#u-n').value.trim(), password: $('#u-p').value, role: $('#u-r').value, active: $('#u-a').value,
       perms: [...document.querySelectorAll('#u-perms input:checked')].map(c => c.value) };
-    try { await api({ action: 'saveUser', u }); toast('اتحفظ'); renderUsers(); } catch (e) { toast(e.message, false); }
+    try { await api({ action: 'saveUser', u }); toast('Saved'); renderUsers(); } catch (e) { toast(e.message, false); }
   };
   root.onclick = async e => {
     const en = e.target.dataset.e, dn = e.target.dataset.d;
     if (en) fill(users.find(u => u.username === en));
-    if (dn && confirm('حذف ' + dn + '؟')) { try { await api({ action: 'delUser', username: dn }); toast('اتحذف'); renderUsers(); } catch (er) { toast(er.message, false); } }
+    if (dn && confirm('Delete ' + dn + '?')) { try { await api({ action: 'delUser', username: dn }); toast('Deleted'); renderUsers(); } catch (er) { toast(er.message, false); } }
   };
 }
+
+/* Copy Dash: image of the Absenteeism % card -> clipboard */
+$('#copyDash').onclick = async () => {
+  if (!FINAL.length) return toast('Nothing to copy yet', false);
+  try {
+    const cv = await html2canvas($('#pivotCard'), { backgroundColor: '#27104d', scale: 2, onclone: d => {
+      const w = d.querySelector('#pivot'); w.style.maxHeight = 'none'; w.style.overflow = 'visible'; d.querySelector('#copyDash').style.display = 'none'; } });
+    const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+    try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); toast('Dashboard copied - paste it anywhere'); }
+    catch { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Absenteeism.png'; a.click(); toast('Clipboard blocked - image downloaded instead'); }
+  } catch (e) { toast('Copy failed: ' + e.message, false); }
+};
