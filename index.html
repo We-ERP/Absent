@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Absenteeism Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="orb o1"></div><div class="orb o2"></div>
+
+<section id="login">
+  <div class="login-card">
+    <div class="logo">A%</div>
+    <h1>Absenteeism Dashboard</h1>
+    <input id="usr" placeholder="اليوزر" autocomplete="username">
+    <input id="pwd" type="password" placeholder="كلمة السر" autocomplete="current-password">
+    <button class="btn b-up" id="loginBtn">دخول</button>
+  </div>
+</section>
+
+<main id="app" hidden>
+  <header>
+    <div class="brand"><span class="logo sm">A%</span><h2>Absenteeism Dashboard</h2></div>
+    <nav id="tabs"></nav>
+    <div class="me"><span id="who"></span><button class="btn sm b-del" id="logout">خروج</button></div>
+  </header>
+
+  <section id="v-dash">
+    <div class="hero">
+      <div class="tile t1"><span>Absenteeism %</span><b id="k-pct">-</b></div>
+      <div class="tile t2"><span>وقت الغياب</span><b id="k-abs">-</b></div>
+      <div class="tile t3"><span>الوقت المجدول</span><b id="k-sch">-</b></div>
+      <div class="tile t4"><span>موظفين غايبين</span><b id="k-ag">-</b></div>
+    </div>
+
+    <div class="card slim">
+      <div class="row c">
+        <button class="btn b-up big" id="upSch">رفع ملف الاسكدول</button>
+        <button class="btn sm b-ref" id="gear" hidden>⚙</button>
+      </div>
+      <div class="row c" id="settings" hidden>
+        <label>صفوف الهيدر <input id="hdr" type="number" value="20" min="0"></label>
+        <label>عمود المدة <input id="dcol" value="J" maxlength="2"></label>
+        <label>الحالة <select id="stf"><option value="all">الكل</option><option value="Active">Active فقط</option></select></label>
+      </div>
+      <p id="info" class="muted c">ارفع ملف الاسكدول وهتطلع النتيجة هنا.</p>
+    </div>
+
+    <div class="card slim"><h3>Absenteeism %</h3><div class="wrap" dir="ltr" id="pivot"></div></div>
+
+    <div class="card">
+      <div class="bar">
+        <h3>Final <small id="cnt" class="muted"></small></h3>
+        <div class="row">
+          <label>الليدر <select id="tlf"><option value="all">كل الليدرز</option></select></label>
+          <button class="btn sm b-exp" id="expView">تصدير المعروض (A:F)</button>
+          <button class="btn sm b-save" id="expAll">تصدير الكل (A:F)</button>
+        </div>
+      </div>
+      <div class="wrap" dir="ltr" id="final"></div>
+    </div>
+  </section>
+
+  <section id="v-ed" hidden></section>
+  <footer>© Seif 2026</footer>
+</main>
+
+<div id="busy" hidden><div class="spin"></div></div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
