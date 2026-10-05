@@ -108,8 +108,8 @@ function process(aoa) {
   const str = new Map(); S.STR.slice(1).forEach(r => { const k = norm(r[0]); if (k) str.set(k, { agent: r[2], tl: r[4], ss: r[6], spv: r[8] }); });
   const out = []; let id = '', date = '';
   for (let i = hdr + 1; i < aoa.length; i++) {
-    const r = aoa[i] || [], b = String(r[1] ?? '').trim(), c = r[2];
-    if (b) { id = b.slice(0, 6).trim(); continue; }
+    const r = aoa[i] || [], b = String(r[1] ?? '').replace(/up/gi, '').trim(), c = r[2];  // نفس الـ VBA: شيل UP من عمود B
+    if (b) { id = b.split(/\s+/)[0].slice(0, 6); continue; }
     const dt = toDate(c);
     if (dt !== null) { date = dt; continue; }
     const code = String(c ?? '').trim(); if (!code || !id || !date) continue;
