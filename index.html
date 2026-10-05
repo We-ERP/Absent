@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Absenteeism Dashboard</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<section id="login">
+  <div class="login-card">
+    <h1>Absenteeism Dashboard</h1>
+    <p>دخول الأدمن فقط</p>
+    <input id="pwd" type="password" placeholder="كلمة السر" autocomplete="current-password">
+    <button class="btn b-up" id="loginBtn">دخول</button>
+  </div>
+</section>
+
+<main id="app" hidden>
+  <header>
+    <h2>Absenteeism Dashboard</h2>
+    <nav id="tabs">
+      <button class="btn b-ref active" data-t="dash">الداشبورد</button>
+      <button class="btn b-ref" data-t="Codes SHR">Codes SHR</button>
+      <button class="btn b-ref" data-t="Codes absent">Codes absent</button>
+      <button class="btn b-ref" data-t="STR">STR</button>
+      <button class="btn b-del" id="logout">خروج</button>
+    </nav>
+  </header>
+
+  <section id="v-dash">
+    <div class="card">
+      <h3>رفع الاسكدول</h3>
+      <div class="row">
+        <button class="btn b-up" id="upSch">رفع ملف الاسكدول</button>
+        <button class="btn b-exp" id="expFinal" disabled>تصدير Final (A:F)</button>
+        <label>صفوف الهيدر <input id="hdr" type="number" value="20" min="0"></label>
+        <label>عمود المدة <input id="dcol" value="J" maxlength="2"></label>
+        <label>الحالة
+          <select id="stf"><option value="all">الكل</option><option value="Active">Active فقط</option></select>
+        </label>
+      </div>
+      <p id="info" class="muted">ارفع ملف الاسكدول (RD) وهتطلع النتيجة هنا.</p>
+    </div>
+    <div class="card"><h3>Pivot - نسبة الغياب</h3><div class="wrap" dir="ltr" id="pivot"></div></div>
+    <div class="card"><h3>Final</h3><div class="wrap" dir="ltr" id="final"></div></div>
+  </section>
+
+  <section id="v-ed" hidden></section>
+  <footer>© Seif 2026</footer>
+</main>
+
+<div id="busy" hidden><div class="spin"></div></div>
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>

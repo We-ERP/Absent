@@ -1,0 +1,193 @@
+/* Seif Dashboard 2026 */
+const API = 'https://script.google.com/macros/s/AKfycbz7BA8nNTZPp2cQSudw1mVpFcqrLwJc1NQpys6G3wIXNFAt5dHsjjU_eViJf_rqFZ2U/exec';
+const $ = (s, r = document) => r.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = s => String(s ?? '').trim().toLowerCase();
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// start = أول صف داتا ، blocks = [اسم, عمود بداية, عمود نهاية] (1-based)
+const CFG = {
+  'Codes SHR':   { start: 3, blocks: [['Shrinkage', 1, 2], ['Scheduled SHR', 4, 5]] },
+  'Codes absent': { start: 3, blocks: [['Absent', 1, 2], ['Scheduled Absent', 5, 6]] },
+  'STR':         { start: 2, blocks: [['STR', 1, 9]] }
+};
+let PWD = '', S = {}, FINAL = [], busyN = 0, tab = 'dash', LAST_AOA = null;
+
+/* ---------- helpers ---------- */
+function toast(m, ok = true) {
+  const d = document.createElement('div'); d.textContent = m; if (!ok) d.className = 'err';
+  $('#toast').append(d); setTimeout(() => d.remove(), 3500);
+}
+async function api(b) {
+  $('#busy').hidden = false; busyN++;
+  try {
+    const r = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ pwd: PWD, ...b }) });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'خطأ');
+    return j;
+  } finally { if (--busyN <= 0) $('#busy').hidden = true; }
+}
+const loadSheet = async n => { S[n] = (await api({ action: 'read', sheet: n })).values; };
+function pickFile(cb) {
+  const i = document.createElement('input'); i.type = 'file'; i.accept = '.xlsx,.xls,.csv';
+  i.onchange = async () => { if (!i.files[0]) return; const buf = await i.files[0].arrayBuffer(); cb(XLSX.read(buf, { type: 'array' })); };
+  i.click();
+}
+const aoaOf = wb => XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+const pad = n => String(n).padStart(2, '0');
+const fmtT = s => `${Math.floor(s / 3600)}:${pad(Math.floor(s % 3600 / 60))}:${pad(s % 60)}`;
+const serialDate = n => new Date((n - 25569) * 864e5);
+const fmtD = n => { const d = serialDate(n); return `${d.getUTCDate()}-${MON[d.getUTCMonth()]}`; };
+const colIdx = l => l.toUpperCase().split('').reduce((a, c) => a * 26 + c.charCodeAt(0) - 64, 0) - 1;
+function toSec(v) {
+  if (typeof v === 'number') return Math.round(v * 86400);
+  const m = String(v).trim().match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+  return m ? +m[1] * 3600 + +m[2] * 60 + +(m[3] || 0) : null;
+}
+
+/* ---------- login ---------- */
+async function start() {
+  await Promise.all(Object.keys(CFG).map(loadSheet));
+  $('#login').hidden = true; $('#app').hidden = false; show('dash');
+}
+async function login() {
+  PWD = $('#pwd').value;
+  try { await api({ action: 'login' }); sessionStorage.p = PWD; await start(); }
+  catch (e) { toast(e.message, false); }
+}
+$('#loginBtn').onclick = login;
+$('#pwd').onkeydown = e => e.key === 'Enter' && login();
+$('#logout').onclick = () => { sessionStorage.clear(); location.reload(); };
+if (sessionStorage.p) { PWD = sessionStorage.p; start().catch(() => { sessionStorage.clear(); $('#login').hidden = false; }); }
+
+$('#tabs').onclick = e => { const t = e.target.dataset.t; if (t) show(t); };
+function show(t) {
+  tab = t;
+  document.querySelectorAll('#tabs [data-t]').forEach(b => b.classList.toggle('active', b.dataset.t === t));
+  $('#v-dash').hidden = t !== 'dash'; $('#v-ed').hidden = t === 'dash';
+  if (t !== 'dash') renderEditor(t);
+}
+
+/* ---------- معالجة الاسكدول (نفس منطق الـ VBA) ---------- */
+function process(aoa) {
+  const hdr = +$('#hdr').value, dc = colIdx($('#dcol').value || 'J');
+  const mk = (sh, ci, si) => { const m = new Map(); S[sh].slice(2).forEach(r => { const k = norm(r[ci]); if (k && !m.has(k)) m.set(k, String(r[si] || '').trim()); }); return m; };
+  const shrA = mk('Codes SHR', 0, 1), shrB = mk('Codes SHR', 3, 4), absA = mk('Codes absent', 0, 1), absB = mk('Codes absent', 4, 5);
+  const look = (a, b, k) => a.get(k) || b.get(k) || '#N/A';
+  const str = new Map(); S.STR.slice(1).forEach(r => { const k = norm(r[0]); if (k) str.set(k, { agent: r[2], tl: r[4], ss: r[6], spv: r[8] }); });
+
+  const out = []; let id = '', date = '';
+  for (let i = hdr + 1; i < aoa.length; i++) {
+    const r = aoa[i] || [], b = String(r[1] ?? '').trim(), c = r[2];
+    if (b) { id = b.slice(0, 6).trim(); continue; }          // صف الموظف
+    if (typeof c === 'number') { date = Math.trunc(c); continue; } // صف التاريخ
+    const code = String(c ?? '').trim(); if (!code || !id || !date) continue;
+    const sec = toSec(r[dc]); if (sec == null) continue;
+    const u = str.get(norm(id)) || {}, k = norm(code), d = serialDate(date);
+    out.push({
+      id, date, sec, code,
+      agent: u.agent ?? '#N/A', tl: u.tl ?? '#N/A', ss: u.ss ?? '#N/A', spv: u.spv ?? '#N/A',
+      shr: look(shrA, shrB, k), abs: look(absA, absB, k),
+      month: `${MON[d.getUTCMonth()]}-${String(d.getUTCFullYear()).slice(2)}`
+    });
+  }
+  FINAL = out;
+  const miss = [...new Set(out.filter(x => x.abs === '#N/A' || x.shr === '#N/A').map(x => x.code))];
+  $('#info').innerHTML = `تمت معالجة <b>${out.length}</b> صف.` + (miss.length ? ` <span style="color:#ffb4bd">أكواد مش موجودة في الشيتات (${miss.length}): ${esc(miss.join(' ، '))}</span>` : ' كل الأكواد متسجلة ✔');
+  $('#expFinal').disabled = !out.length;
+  renderFinal(); renderPivot();
+}
+function renderFinal() {
+  const H = ['ID', 'Date', 'Duration', 'Agent Name', 'TL', 'Code', 'Shrinkage', 'Absent', 'Month', 'ss', 'SPV'];
+  const cell = v => `<td class="${v === '#N/A' ? 'na' : ''}">${esc(v)}</td>`;
+  $('#final').innerHTML = `<table><thead><tr>${H.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>` +
+    FINAL.slice(0, 500).map(x => `<tr><td>${esc(x.id)}</td><td>${fmtD(x.date)}</td><td>${fmtT(x.sec)}</td>${cell(x.agent)}${cell(x.tl)}<td>${esc(x.code)}</td>${cell(x.shr)}${cell(x.abs)}<td>${x.month}</td>${cell(x.ss)}${cell(x.spv)}</tr>`).join('') +
+    `</tbody></table>` + (FINAL.length > 500 ? `<p class="muted" style="padding:8px">معروض أول 500 صف من ${FINAL.length} - التصدير بيشمل الكل.</p>` : '');
+}
+function renderPivot() {
+  const act = $('#stf').value === 'Active', g = new Map();
+  FINAL.filter(x => !act || x.ss === 'Active').forEach(x => {
+    if (!g.has(x.spv)) g.set(x.spv, new Map());
+    const m = g.get(x.spv); if (!m.has(x.tl)) m.set(x.tl, { a: 0, s: 0 });
+    const o = m.get(x.tl); if (x.abs === 'Absent') o.a += x.sec; else if (x.abs === 'Scheduled') o.s += x.sec;
+  });
+  const pc = (a, t) => t ? (a / t * 100).toFixed(2) + '%' : '-';
+  const tr = (n, o, cls) => `<tr class="${cls}"><td>${esc(n)}</td><td>${fmtT(o.a)}</td><td>${fmtT(o.s)}</td><td>${fmtT(o.a + o.s)}</td><td>${pc(o.a, o.a + o.s)}</td></tr>`;
+  let h = '', G = { a: 0, s: 0 };
+  [...g.keys()].sort().forEach(spv => {
+    const m = g.get(spv), t = { a: 0, s: 0 };
+    m.forEach(o => { t.a += o.a; t.s += o.s; });
+    G.a += t.a; G.s += t.s;
+    h += tr(spv, t, 'spv') + [...m.keys()].sort().map(tl => tr(tl, m.get(tl), '')).join('');
+  });
+  h += tr('Total Scheduled Time', G, 'tot');
+  $('#pivot').innerHTML = `<table><thead><tr><th>TL</th><th>Absent</th><th>Scheduled</th><th>Total Scheduled Time</th><th>%</th></tr></thead><tbody>${h}</tbody></table>`;
+}
+$('#upSch').onclick = () => pickFile(wb => { LAST_AOA = aoaOf(wb); process(LAST_AOA); toast('تمت المعالجة'); });
+$('#stf').onchange = () => FINAL.length && renderPivot();
+['#hdr', '#dcol'].forEach(s => $(s).onchange = () => LAST_AOA && process(LAST_AOA));
+$('#expFinal').onclick = () => {
+  const aoa = [['ID', 'Date', 'Duration', 'Agent Name', 'TL', 'Code'],
+    ...FINAL.map(x => [/^\d+$/.test(x.id) ? +x.id : x.id, x.date, x.sec / 86400, x.agent, x.tl, x.code])];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  for (let i = 2; i <= aoa.length; i++) { ws['B' + i].z = 'd-mmm'; ws['C' + i].z = '[h]:mm:ss'; }
+  ws['!cols'] = [10, 10, 11, 34, 18, 24].map(w => ({ wch: w }));
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Final');
+  XLSX.writeFile(wb, 'Final.xlsx');
+};
+
+/* ---------- محرر الشيتات (ميرور لجوجل شيت) ---------- */
+function renderEditor(name) {
+  const cfg = CFG[name], root = $('#v-ed');
+  root.innerHTML = '';
+  cfg.blocks.forEach(([title, c1, c2], bi) => {
+    const head = (S[name][cfg.start - 2] || []).slice(c1 - 1, c2);
+    const card = document.createElement('div'); card.className = 'card';
+    card.innerHTML = `<div class="bar"><h3>${esc(name)} - ${esc(title)}</h3>
+      <div class="row"><input class="q" placeholder="بحث..."><button class="btn sm b-up up">رفع واستبدال</button><button class="btn sm b-ref rf">تحديث</button></div></div>
+      <div class="add">${head.map(h => `<input placeholder="${esc(h)}">`).join('')}<button class="btn sm b-add ad">إضافة</button></div>
+      <div class="wrap" dir="ltr"></div>`;
+    root.append(card);
+    const wrap = $('.wrap', card);
+    const draw = () => {
+      const q = norm($('.q', card).value); let n = 0, rows = '';
+      for (let r = cfg.start - 1; r < S[name].length; r++) {
+        const v = S[name][r].slice(c1 - 1, c2);
+        if (v.every(x => x === '') || (q && !v.some(x => norm(x).includes(q)))) continue;
+        if (++n > 300) break;
+        rows += `<tr>${v.map((x, i) => `<td><input value="${esc(x)}" data-r="${r + 1}" data-c="${c1 + i}"></td>`).join('')}<td><button class="btn sm b-del" data-del="${r + 1}">حذف</button></td></tr>`;
+      }
+      wrap.innerHTML = `<table><thead><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}<th></th></tr></thead><tbody>${rows}</tbody></table>` +
+        (n > 300 ? '<p class="muted" style="padding:8px">معروض أول 300 - استخدم البحث.</p>' : '');
+    };
+    draw();
+    const reload = async () => { await loadSheet(name); renderEditor(name); };
+    $('.q', card).oninput = draw;
+    $('.rf', card).onclick = () => reload().then(() => toast('تم التحديث')).catch(e => toast(e.message, false));
+    wrap.onchange = async e => {  // تعديل خلية
+      const t = e.target; if (!t.dataset.r) return;
+      const r = +t.dataset.r; S[name][r - 1][+t.dataset.c - 1] = t.value;
+      try { await api({ action: 'setCells', sheet: name, row: r, c1, values: S[name][r - 1].slice(c1 - 1, c2) }); toast('اتحفظ'); }
+      catch (er) { toast(er.message, false); }
+    };
+    wrap.onclick = async e => {  // حذف
+      const r = e.target.dataset.del; if (!r || !confirm('متأكد من الحذف؟')) return;
+      try { await api({ action: 'delRow', sheet: name, row: +r, c1, c2 }); await reload(); toast('اتحذف'); }
+      catch (er) { toast(er.message, false); }
+    };
+    $('.ad', card).onclick = async () => {  // إضافة
+      const vals = [...card.querySelectorAll('.add input')].map(i => i.value.trim());
+      if (!vals[0]) return toast('اكتب أول عمود على الأقل', false);
+      try { await api({ action: 'addRow', sheet: name, start: cfg.start, c1, values: vals }); await reload(); toast('اتضاف'); }
+      catch (er) { toast(er.message, false); }
+    };
+    $('.up', card).onclick = () => pickFile(async wb => {  // رفع استركشر/كودات مباشرة
+      const w = c2 - c1 + 1;
+      const vals = aoaOf(wb).slice(1).map(r => Array.from({ length: w }, (_, i) => r[i] ?? '')).filter(r => r.some(x => x !== ''));
+      if (!vals.length) return toast('الملف فاضي', false);
+      if (!confirm(`هيتم استبدال ${title} بـ ${vals.length} صف. تكمل؟`)) return;
+      try { await api({ action: 'replace', sheet: name, start: cfg.start, c1, c2, values: vals }); await reload(); toast('تم الرفع'); }
+      catch (er) { toast(er.message, false); }
+    });
+  });
+}
